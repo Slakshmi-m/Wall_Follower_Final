@@ -1,0 +1,101 @@
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Int32
+import serial
+import time
+
+# ---------------- CONFIGURATION CONSTANTS ----------------
+OBSTACLE_LIMIT = 30.0   # centimeters
+
+# ---------------- COMMAND CODES (match microcontroller) --
+CMD_STOP  = 0
+CMD_FWD   = 1
+#CMD_BACK  = 2
+#CMD_LEFT  = 3
+#CMD_RIGHT = 4
+
+
+class WallFollower(Node):
+    def __init__(self):
+        super().__init__('wall_follower_node')
+
+        # 1. ROS publisher (topic name must match microcontroller subscriber)
+        self.publisher_ = self.create_publisher(Int32,'micro_ros_sree_subscriber',10)
+
+        # 2. Serial port setup
+        self.port_name = '/dev/ttyACM0'
+        self.serial_port = None
+
+        try:
+            self.serial_port = serial.Serial(self.port_name, 9600, timeout=1)
+            self.serial_port.flush()
+            self.get_logger().info(f'Connected to Nano on {self.port_name}')
+        except serial.SerialException:
+            self.get_logger().error(f'Could not open {self.port_name}. Is Nano plugged in?')
+
+        # 3. Distance “memory” (0 = right, 90 = front, 180 = left)
+        self.dist_angle_0 = 100.0
+        self.dist_angle_90 = 100.0
+        self.dist_angle_180 = 100.0
+
+        # Current command
+        self.direction = CMD_STOP
+
+        # 4. Timer loop
+        self.timer = self.create_timer(0.05, self.control_loop)
+
+    def control_loop(self):
+        if self.serial_port and self.serial_port.in_waiting > 0:
+            try:
+                line = self.serial_port.readline().decode('ascii').strip()
+                parts = line.split(',')
+
+                if len(parts) >= 2:
+                    # Format: "angle,distance"
+                    angle = int(parts[0])
+                    dist = float(parts[1])
+
+                    # Update distance memory
+                    if angle == 0: self.dist_angle_0 = dist
+                    elif angle == 90: self.dist_angle_90 = dist
+                    elif angle == 180: self.dist_angle_180 = dist
+
+                    # Decide motion and publish
+                    self.decide_movement()
+                    self.publish_command()
+
+            except ValueError:
+                # Ignore malformed lines
+                pass
+
+    def decide_movement(self):
+        # PROJECT 3 logic:
+        # If the front is clear, move forward; otherwise, stop.
+        
+        if self.dist_angle_90 < OBSTACLE_LIMIT:
+            self.direction = CMD_FWD
+        else:
+            self.direction = CMD_STOP
+
+    def publish_command(self):
+        msg = Int32()
+        msg.data = self.direction
+        self.publisher_.publish(msg)
+
+        self.get_logger().info(f'Front Dist: {self.dist_angle_90:0.1f} cm -> Command: {self.direction}')
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = WallFollower()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
