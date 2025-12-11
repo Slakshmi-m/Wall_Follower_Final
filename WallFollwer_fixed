@@ -11,8 +11,8 @@ OBSTACLE_LIMIT = 30.0   # centimeters
 CMD_STOP  = 0
 CMD_FWD   = 1
 CMD_BACK  = 2
-CMD_LEFT  = 3
-CMD_RIGHT = 4
+CMD_RIGHT = 3
+CMD_LEFT  = 4
 
 class WallFollower(Node):
     def __init__(self):
